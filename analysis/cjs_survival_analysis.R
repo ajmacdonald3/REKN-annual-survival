@@ -8,8 +8,6 @@
 #library(RMark)
 library(tidyverse)
 library(lubridate)
-library(reshape)
-library(bb2enchist)
 library(R2ucare)
 library(cowplot)
 library(corrr)
@@ -48,7 +46,7 @@ df_new <- overall_CJS(rekn_hist, rekn_freq)$degree_of_freedom - (test3sr(rekn_hi
 # compute p-value
 1 - pchisq(stat_new, df_new)
 
-# chat = chi-square/df = 52.11/31 = 1.681
+# chat = chi-square/df = 48.543/31 = 1.566
 # adjust for estimated overdispersion
 
 ################################################################################
@@ -61,7 +59,7 @@ std_covs <- readRDS("data/survival_covariates_standardized.rds")
 rownames(rekn_enchist) <- NULL
 
 enchist <- rekn_enchist %>% 
-  column_to_rownames(var = "FlagID")
+  column_to_rownames(var = "BirdID")
 
 enchist <- sapply(enchist, as.numeric)
 
@@ -161,7 +159,7 @@ nt <- 10
 nb <- 50000
 nc <- 3
 
-# Call JAGS from R (BRT 1 min)
+# Call JAGS from R (BRT 4 min)
 cjs <- jagsUI::jags(jags.data, inits, parameters, "cjs-tsm.jags",
                     n.chains = nc, n.thin = nt, n.iter = ni, n.burnin = nb, parallel = TRUE)
 
@@ -240,14 +238,14 @@ windowsFonts(Times=windowsFont("TT Times New Roman"))
 # set custom theme for all plots
 theme_cust <- function() {
   theme_classic(base_family = "Times") %+replace%
-    theme(axis.title.x = element_text(size=10),
-          axis.text.x  = element_text(size=8, colour = "black"),
-          axis.title.y = element_text(size=10, angle = 90, margin = margin(t = 0, r = 5, b = 0, l = 0)),
-          axis.text.y = element_text(size=8, colour = "black"),
+    theme(axis.title.x = element_text(size=12),
+          axis.text.x  = element_text(size=10, colour = "black"),
+          axis.title.y = element_text(size=12, angle = 90, margin = margin(t = 0, r = 5, b = 0, l = 0)),
+          axis.text.y = element_text(size=10, colour = "black"),
           axis.line.x = element_line(colour = 'black', size=0.5, linetype='solid'),
           axis.line.y = element_line(colour = 'black', size=0.5, linetype='solid'),
           strip.text.x = element_text(size=12, face = "bold"),
-          legend.text = element_text(size=8),
+          legend.text = element_text(size=10),
           legend.key.height = unit(1, "mm"),
           plot.title = element_text(size = 12, hjust = 0, vjust = 1.5),
           #panel.border = element_rect(size =0.5, fill = "transparent"),
@@ -255,7 +253,7 @@ theme_cust <- function() {
 }
 
 # format data
-cjs_res <- readRDS("./analysis-output/cjs-tsm-summary2021-08-14.rds")
+cjs_res <- readRDS("./analysis-output/cjs-tsm-summary2021-08-15.rds")
 
 cjs_res <- cjs_res %>% 
   as.data.frame %>% 
@@ -270,7 +268,17 @@ phi_res <- cjs_res %>%
   filter(str_detect(parameter, "phi\\[")) %>% 
   mutate(year = 2009:2017) %>% 
   mutate(var = "phi")
+
+trans_res <- cjs_res %>% 
+  filter(str_detect(parameter, "phi.t\\[")) %>% 
+  mutate(year = 2009:2017) %>% 
+  mutate(var = "trans")
   
+p_res <- cjs_res %>% 
+  filter(str_detect(parameter, "p\\[")) %>% 
+  mutate(year = 2010:2018) %>% 
+  mutate(var = "p")
+
 # apparent annual survival
 phi_plot <- ggplot() +
   geom_rect(data = filter(cjs_res, parameter == "mean.phi"),
@@ -286,17 +294,95 @@ phi_plot <- ggplot() +
   #scale_fill_manual(values = c("black", "white")) +
   #scale_x_continuous(labels = function(x) format(as.Date(x, origin = "1970-01-01"), "%d %b")) +
   ylim(0, 1) +
-  ylab("Annual apparent survival") +
+  ylab("Apparent annual survival probability") +
   theme_cust() +
-  theme(#legend.position = c(0.4,0.15),
-        #legend.title = element_blank(),
-        #legend.background = element_blank(),
-        axis.title.x = element_blank())
+  theme(axis.title.x = element_blank())
 
-png(filename = paste0("figures/phi-plot.png"),
+png(filename = "figures/phi-plot.png",
     width=6, height=4, units="in", res=600)
 
 plot(phi_plot)
 
 dev.off()
 
+# transience plot
+trans_plot <- ggplot() +
+  geom_rect(data = filter(cjs_res, parameter == "mean.phi.t"),
+            aes(xmin=-Inf, xmax=Inf, ymin=lcl, ymax=ucl), fill = "grey50", alpha=0.3) +
+  geom_hline(data = filter(cjs_res, parameter == "mean.phi.t"),
+             aes(yintercept=mean)) +
+  geom_errorbar(data = trans_res, aes(x=as.factor(year), ymin=lcl, ymax=ucl),
+                width=0, size=0.5, colour="black", linetype=1) +
+  geom_line(data = trans_res, aes(x=as.factor(year), y=mean, group = var),
+            linetype="dashed", size=0.5) +
+  geom_point(data = trans_res, aes(x=as.factor(year), y=mean),
+             size=3) +
+  #scale_fill_manual(values = c("black", "white")) +
+  #scale_x_continuous(labels = function(x) format(as.Date(x, origin = "1970-01-01"), "%d %b")) +
+  ylim(0, 1) +
+  ylab("Apparent annual survival probability\nin year following first resighting") +
+  theme_cust() +
+  theme(axis.title.x = element_blank())
+
+png(filename = "figures/trans-plot.png",
+    width=6, height=4, units="in", res=600)
+
+plot(trans_plot)
+
+dev.off()
+
+# resighting plot
+p_plot <- ggplot() +
+  geom_rect(data = filter(cjs_res, parameter == "mean.p"),
+            aes(xmin=-Inf, xmax=Inf, ymin=lcl, ymax=ucl), fill = "grey50", alpha=0.3) +
+  geom_hline(data = filter(cjs_res, parameter == "mean.p"),
+             aes(yintercept=mean)) +
+  geom_errorbar(data = p_res, aes(x=as.factor(year), ymin=lcl, ymax=ucl),
+                width=0, size=0.5, colour="black", linetype=1) +
+  geom_line(data = p_res, aes(x=as.factor(year), y=mean, group = var),
+            linetype="dashed", size=0.5) +
+  geom_point(data = p_res, aes(x=as.factor(year), y=mean),
+             size=3) +
+  #scale_fill_manual(values = c("black", "white")) +
+  #scale_x_continuous(labels = function(x) format(as.Date(x, origin = "1970-01-01"), "%d %b")) +
+  ylim(0, 1) +
+  ylab("Resighting probability") +
+  theme_cust() +
+  theme(axis.title.x = element_blank())
+
+png(filename = "figures/p-plot.png",
+    width=6, height=4, units="in", res=600)
+
+plot(p_plot)
+
+dev.off()
+
+# covariate plots
+cov_data <- readRDS("./data/survival_covariates.rds")
+
+cov_data <- cov_data %>% 
+  select(-Period, -summer_precip, -spring_temp) %>% 
+  mutate(year = 2010:2018)
+
+snow_plot <- ggplot(cov_data, aes(x=as.factor(year), y=mean_snowc*100, group=1)) +
+  geom_line(size=0.5) +
+  geom_point(shape = 21, size=2, fill = "black") +
+  ylab("Mean snow cover (%)") +
+  theme_cust() +
+  theme(axis.text.x  = element_text(angle = -45, vjust = 0.5),
+        axis.title.x = element_blank())
+
+mass_plot <- ggplot(cov_data, aes(x=as.factor(year), y=dep_mass, group=1)) +
+  geom_line(size=0.5) +
+  geom_point(shape = 21, size=2, fill = "black") +
+  ylab("Delaware Bay departure mass (g)") +
+  theme_cust() +
+  theme(axis.text.x  = element_text(angle = -45, vjust = 0.5),
+        axis.title.x = element_blank())
+
+png(filename = paste0("figures/cov-plots.png"),
+    width=6, height=3, units="in", res=600)
+
+plot_grid(mass_plot, snow_plot, labels = "auto", ncol = 2)
+
+dev.off()

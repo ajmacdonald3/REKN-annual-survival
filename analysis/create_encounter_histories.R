@@ -57,14 +57,24 @@ band_numbers <- banding_records %>%
   select(MetalID) %>% 
   distinct() %>% pull()
 
+# separate out brazil and argentina - don't have the banding records for them so keep all
+brar_resights <- all_resights_clean %>% 
+  filter(FlagID %in% c("FDB", "FEDB", "FO", "FEO"))
+
+other_resights <- all_resights_clean %>% 
+  filter(!FlagID %in% c("FDB", "FEDB", "FO", "FEO"))
+
 # remove resights that don't have a banding record
-all_resights_clean <- all_resights_clean %>% 
+other_resights <- other_resights %>% 
   filter(MetalID %in% band_numbers)
+
+# add brazil and argentina resights back in
+all_resights_clean <- bind_rows(other_resights, brar_resights)
 
 # create encounter histories for CJS model
 resights_enchist_cjs <- all_resights_clean %>% 
   arrange(ResightDate) %>% 
-  select(year, BirdID) %>% 
+  dplyr::select(year, BirdID) %>% 
   distinct() %>% 
   arrange(year) %>% 
   mutate(Seen = 1)
@@ -103,42 +113,28 @@ enchist$end <- "1;"
 write.table(enchist, file = "./data/rekn_enchist.inp", quote = FALSE,
             row.names = FALSE, col.names = FALSE)
 
-# Function to create a m-array based on capture-histories (CH)
-marray <- function(CH){
-  
-  n.occasions <- dim(CH)[2]
-  m.array <- matrix(data = 0, ncol = n.occasions+1, nrow = n.occasions)
-  nind <- dim(CH)[1]
-  
-  # Calculate the number of released individuals at each time period
-  for (t in 1:n.occasions){
-    m.array[t,1] <- sum(CH[,t])
-  }
-  for (i in 1:nind){
-    pos <- which(CH[i,]!=0)
-    g <- length(pos)
-    for (z in 1:(g-1)){
-      m.array[pos[z],pos[z+1]] <- m.array[pos[z],pos[z+1]] + 1
-    } #z
-  } #i
-  # Calculate the number of individuals that is never recaptured
-  for (t in 1:n.occasions){
-    m.array[t,n.occasions+1] <- m.array[t,1] - sum(m.array[t,2:n.occasions])
-  }
-  out <- m.array[1:(n.occasions-1),2:(n.occasions+1)]
-  return(out)
-}
+################################################################################
 
-enchist_cjs <- enchist_cjs[,2:39]
+# summarize number of observations per year by flag colour
 
-# # remove capture histories of individuals marked in last occasion
-# get.first <- function(x) min(which(x!=0))
-# first <- apply(enchist_cjs, 1, get.first)
-# last.only <- which(first==dim(enchist_cjs)[1])
-# if (length(last.only) > 0) enchist_cjs <- enchist_cjs[-last.only,]
+bb_resights <- all_resights_clean %>% 
+  dplyr::select(year, FlagID, BirdID) %>% 
+  mutate(FlagID = replace(FlagID, str_detect(FlagID, "FELG"), "FLG")) %>% 
+  mutate(FlagID = replace(FlagID, str_detect(FlagID, "FEDG"), "FDG")) %>% 
+  mutate(FlagID = replace(FlagID, str_detect(FlagID, "FEDB"), "FDB")) %>% 
+  mutate(FlagID = replace(FlagID, str_detect(FlagID, "FEO"), "FO")) %>% 
+  mutate(FlagID = replace(FlagID, str_detect(FlagID, "FEW"), "FW")) %>% 
+  mutate(FlagID = replace(FlagID, str_detect(FlagID, "FER"), "FR")) %>% 
+  distinct()
 
-marr <- marray(enchist_cjs)
+resights_summary <- bb_resights %>% 
+  group_by(year, FlagID) %>% 
+  tally()
 
-write.csv(marr, file = "./processed-data/rekn-cjs-marray.csv", row.names = FALSE)
-saveRDS(marr, file = "./processed-data/rekn-cjs-marray.rds")
+year_summary <- resights_summary %>% 
+  group_by(year) %>% 
+  summarize(n = sum(n))
 
+flag_summary <- resights_summary %>% 
+  group_by(FlagID) %>% 
+  summarize(n = sum(n))
